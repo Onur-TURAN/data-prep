@@ -2,7 +2,8 @@ import pandas as pd
 import tkinter as tk
 from tkinter import filedialog
 import matplotlib.pyplot as plt
-
+"""This script compares two CSV files, calculates the changes in the first column of each file,
+and visualizes the changes in a bar chart."""
 def ask_for_csv_file():
     root = tk.Tk()
     root.withdraw()
