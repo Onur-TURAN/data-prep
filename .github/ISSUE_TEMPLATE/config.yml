@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ❓ Genel Soru
+    url: https://github.com/Onur-TURAN/data-prep/discussions
+    about: Genel sorular ve sohbetler için Discussions sekmesini kullanın

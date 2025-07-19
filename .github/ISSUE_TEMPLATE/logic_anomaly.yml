@@ -1,0 +1,43 @@
+name: 🧠 Logic Anomaly
+description: Kodun mantıksal olarak hatalı çalıştığı durumları bildirin
+title: "[ANOMALY] "
+labels: [logic-anomaly]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Kodun beklenmedik veya hatalı çalıştığını mı fark ettiniz? Lütfen detaylandırın.
+
+  - type: textarea
+    id: anomaly_description
+    attributes:
+      label: Anomali Açıklaması
+      placeholder: Ne bekliyordunuz, ne oldu?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Beklenen vs Mevcut Davranış
+      placeholder: |
+        Beklenen:
+        Gerçekleşen:
+    validations:
+      required: true
+
+  - type: textarea
+    id: code_example
+    attributes:
+      label: İlgili Kod veya Akış
+      description: Kod parçası, pseudocode veya ilgili dosya yapısını ekleyin
+    validations:
+      required: false
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Etkileri
+      description: Bu mantıksal hata ne gibi sonuçlara neden oluyor?
+    validations:
+      required: false

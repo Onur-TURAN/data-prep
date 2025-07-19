@@ -1,0 +1,39 @@
+name: 🌟 Feature Request
+description: Yeni özellik önerin
+title: "[FEATURE] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Yeni bir özellik fikriniz mi var? Harika! Lütfen aşağıdaki formu doldurun.
+
+  - type: textarea
+    id: feature
+    attributes:
+      label: Özellik Açıklaması
+      placeholder: Ne öneriyorsunuz?
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Neden Gerekli?
+      description: Bu özellik hangi sorunu çözüyor?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatifler
+      description: Bu özelliği sağlamanın başka yolları var mıydı?
+      placeholder: Alternatif çözüm önerileri...
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Ek Notlar

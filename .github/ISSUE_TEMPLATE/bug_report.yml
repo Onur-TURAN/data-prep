@@ -1,0 +1,44 @@
+name: 🐞 Bug Report
+description: Uygulamada karşılaşılan hataları bildirin
+title: "[BUG] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lütfen hatayı detaylıca açıklayın. Gerekirse ekran görüntüsü ekleyin.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Hata Açıklaması
+      description: Ne oldu? Ne olmalıydı?
+      placeholder: Açıklamanızı buraya yazın...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Adımlar
+      description: Hatayı oluşturmak için gereken adımları sıralayın
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Ortam Bilgisi
+      description: OS, tarayıcı, uygulama sürümü gibi bilgiler
+      placeholder: Örn: macOS, Chrome 125, v1.3.2
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Ek Notlar
+      description: Eklemek istediğiniz başka bir şey var mı?
