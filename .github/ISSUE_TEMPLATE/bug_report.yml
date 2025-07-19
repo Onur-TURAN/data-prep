@@ -1,27 +1,27 @@
 name: 🐞 Bug Report
-description: Uygulamada karşılaşılan hataları bildirin
+description: Report issues encountered in the application
 title: "[BUG] "
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Lütfen hatayı detaylıca açıklayın. Gerekirse ekran görüntüsü ekleyin.
+        Please describe the bug in detail. Add screenshots if necessary.
 
   - type: textarea
     id: description
     attributes:
-      label: Hata Açıklaması
-      description: Ne oldu? Ne olmalıydı?
-      placeholder: Açıklamanızı buraya yazın...
+      label: Bug Description
+      description: What happened? What should have happened?
+      placeholder: Write your explanation here...
     validations:
       required: true
 
   - type: textarea
     id: steps
     attributes:
-      label: Adımlar
-      description: Hatayı oluşturmak için gereken adımları sıralayın
+      label: Steps to Reproduce
+      description: List the steps required to reproduce the bug
       placeholder: |
         1. ...
         2. ...
@@ -31,14 +31,14 @@ body:
   - type: input
     id: environment
     attributes:
-      label: Ortam Bilgisi
-      description: OS, tarayıcı, uygulama sürümü gibi bilgiler
-      placeholder: Örn: macOS, Chrome 125, v1.3.2
+      label: Environment Information
+      description: Information such as OS, browser, app version, etc.
+      placeholder: macOS, Chrome 125, v1.3.2 etc.
     validations:
       required: true
 
   - type: textarea
     id: extra
     attributes:
-      label: Ek Notlar
-      description: Eklemek istediğiniz başka bir şey var mı?
+      label: Additional Notes
+      description: Anything else you want to add?

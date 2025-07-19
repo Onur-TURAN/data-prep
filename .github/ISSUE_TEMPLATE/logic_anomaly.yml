@@ -1,43 +1,43 @@
 name: 🧠 Logic Anomaly
-description: Kodun mantıksal olarak hatalı çalıştığı durumları bildirin
+description: Report cases where the code behaves incorrectly due to logic errors
 title: "[ANOMALY] "
 labels: [logic-anomaly]
 body:
   - type: markdown
     attributes:
       value: |
-        Kodun beklenmedik veya hatalı çalıştığını mı fark ettiniz? Lütfen detaylandırın.
+        Did you notice the code behaving unexpectedly or incorrectly? Please provide details.
 
   - type: textarea
     id: anomaly_description
     attributes:
-      label: Anomali Açıklaması
-      placeholder: Ne bekliyordunuz, ne oldu?
+      label: Anomaly Description
+      placeholder: What did you expect, what happened?
     validations:
       required: true
 
   - type: textarea
     id: expected_vs_actual
     attributes:
-      label: Beklenen vs Mevcut Davranış
+      label: Expected vs Actual Behavior
       placeholder: |
-        Beklenen:
-        Gerçekleşen:
+        Expected:
+        Actual:
     validations:
       required: true
 
   - type: textarea
     id: code_example
     attributes:
-      label: İlgili Kod veya Akış
-      description: Kod parçası, pseudocode veya ilgili dosya yapısını ekleyin
+      label: Relevant Code or Flow
+      description: Add a code snippet, pseudocode, or relevant file structure
     validations:
       required: false
 
   - type: textarea
     id: impact
     attributes:
-      label: Etkileri
-      description: Bu mantıksal hata ne gibi sonuçlara neden oluyor?
+      label: Impact
+      description: What are the consequences of this logic error?
     validations:
       required: false
