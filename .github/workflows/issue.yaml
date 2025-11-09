@@ -1,0 +1,234 @@
+name: Kod Analizi ve Issue Açma (Copilot Style)
+
+on:
+  push:
+    paths-ignore:
+      - '**/*.md'
+      - 'build/**'
+      - 'dist/**'
+      - 'node_modules/**'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'build/**'
+      - 'dist/**'
+      - 'node_modules/**'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'just log (true/false)'
+        required: false
+        default: 'false'
+      max_issues:
+        description: 'Maksimum oluşturulacak issue sayısı (0 = sınırsız)'
+        required: false
+        default: '10'
+      openai_enabled:
+        description: 'OpenAI kullanılarak öneri/metin üretimi (true/false)'
+        required: false
+        default: 'false'
+      create_pr:
+        description: 'AI önerisine dayanarak otomatik PR oluştur (dangerous - default false)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  code-review-and-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo'yu Checkout Et
+        uses: actions/checkout@v4
+
+      - name: Node.js Kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Kod Analizi ve Issue Oluştur
+        uses: actions/github-script@v6
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          MAX_ISSUES: ${{ github.event.inputs.max_issues }}
+          OPENAI_ENABLED: ${{ github.event.inputs.openai_enabled }}
+          CREATE_PR: ${{ github.event.inputs.create_pr }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const fs = require('fs').promises;
+            const path = require('path');
+
+            // Note: when triggered by push/pull_request there is no workflow_dispatch input,
+            // so process.env.DRY_RUN may be empty. The fallback below is 'false' so that
+            // by default non-manual runs can actually create issues (change with caution).
+            const dryRun = (process.env.DRY_RUN || 'false').toLowerCase() === 'true';
+            const maxIssues = parseInt(process.env.MAX_ISSUES || '10', 10);
+            const openaiEnabled = (process.env.OPENAI_ENABLED || 'false').toLowerCase() === 'true';
+            const createPr = (process.env.CREATE_PR || 'false').toLowerCase() === 'true';
+            const openaiKey = process.env.OPENAI_API_KEY || null;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const extensions = ['.js','.jsx','.ts','.tsx','.py','.java','.cpp','.c','.h','.cs','.go','.rb','.rs','.swift','.php'];
+            const ignoreDirs = ['node_modules', '.git', 'build', 'dist', 'venv', '.venv', 'target'];
+
+            async function walk(dir) {
+              let results = [];
+              const files = await fs.readdir(dir, { withFileTypes: true });
+              for (const file of files) {
+                const fullPath = path.join(dir, file.name);
+                if (file.isDirectory()) {
+                  if (ignoreDirs.some(d => fullPath.includes(path.sep + d + path.sep) || fullPath.endsWith(path.sep + d))) continue;
+                  results = results.concat(await walk(fullPath));
+                } else if (extensions.some(ext => fullPath.toLowerCase().endsWith(ext))) {
+                  const stat = await fs.stat(fullPath);
+                  if (stat.size > 500 * 1024) continue;
+                  results.push(fullPath);
+                }
+              }
+              return results;
+            }
+
+            async function callOpenAI(prompt) {
+              if (!openaiKey) return null;
+              try {
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${openaiKey}`
+                  },
+                  body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                      { role: 'system', content: 'You are a careful code reviewer. If you output a suggested patch, return a JSON object between markers <<<PATCH_JSON_START>>> and <<<PATCH_JSON_END>>> with fields: {"path": "relative/path/to/file", "content": "full file content after change"}. Otherwise give plain suggestions.'},
+                      { role: 'user', content: prompt }
+                    ],
+                    max_tokens: 1200
+                  })
+                });
+                const j = await res.json();
+                return j?.choices?.[0]?.message?.content || null;
+              } catch (e) {
+                console.log('OpenAI çağrısı başarısız:', e.message || e);
+                return null;
+              }
+            }
+
+            async function analyzeFile(filePath) {
+              const content = await fs.readFile(filePath, 'utf8');
+              const lines = content.split(/\r?\n/);
+              let suggestions = [];
+
+              lines.forEach((l, i) => {
+                if (/\b(TODO|FIXME)\b/.test(l)) suggestions.push(`Satır ${i+1}: TODO/FIXME notu bulunuyor`);
+              });
+
+              if (lines.length > 500) suggestions.push(`Dosya çok uzun (${lines.length} satır). Parçalara ayrılabilir.`);
+              if (content.includes('\t')) suggestions.push('Sekme karakteri var, boşluk kullanılabilir');
+              if (content.includes('\r\n')) suggestions.push('CRLF satır sonu, LF tercih edilebilir');
+
+              const funcMatches = (content.match(/function\s+\w+\s*\([^\)]*\)\s*{/g) || []).concat(content.match(/def\s+\w+\s*\(/g) || []);
+              funcMatches.slice(0,3).forEach(fn => suggestions.push(`Bulunan fonksiyon bildirimi: '${fn.trim()}' — gözden geçir.`));
+
+              let aiSuggestion = null;
+              if (openaiEnabled && openaiKey && suggestions.length > 0) {
+                const relPath = path.relative(process.cwd(), filePath);
+                const prompt = `Repository: ${owner}/${repo}\nFile: ${relPath}\nHeuristics:\n- ${suggestions.join('\n- ')}\n\nLütfen kısa öneriler ver. Eğer bir değişiklik öneriyorsan, yalnızca küçük, güvenli değişiklikler için şu formatta bir JSON üret: <<<PATCH_JSON_START>>>{\"path\":\"relative/path\",\"content\":\"full file content after change (escape newlines)\"}<<<PATCH_JSON_END>>>. Aksi halde sadece açıklayıcı tavsiyeler ver.\n\nDosyanın başlangıcı:\n${content.slice(0,20000)}`;
+                aiSuggestion = await callOpenAI(prompt);
+              }
+
+              return { content, suggestions, aiSuggestion };
+            }
+
+            (async () => {
+              const files = await walk('.');
+              console.log(`Analiz edilecek dosya sayısı: ${files.length}`);
+
+              const openIssues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+
+              let created = 0;
+
+              for (const file of files) {
+                if (maxIssues > 0 && created >= maxIssues) break;
+
+                const relPath = path.relative(process.cwd(), file);
+                const result = await analyzeFile(file);
+                if ((!result.suggestions || result.suggestions.length === 0) && !result.aiSuggestion) continue;
+
+                const title = `[Code Review] ${relPath} için öneriler`;
+                if (openIssues.some(i => i.title === title)) continue;
+
+                let body = `Otomatik kod incelemesi sonucunda öneriler:\n\n`;
+                if (result.suggestions && result.suggestions.length) body += result.suggestions.map(s => `- ${s}`).join('\n') + '\n\n';
+                if (result.aiSuggestion) body += `---\nAI tarafından üretilen içerik:\n${result.aiSuggestion}\n---\n`;
+                body += '\nBu issue workflow tarafından otomatik oluşturulmuştur.';
+
+                if (dryRun) {
+                  console.log(`DRY RUN: Oluşturulacak issue: ${title}`);
+                  console.log(body.slice(0,2000));
+                } else {
+                  await github.rest.issues.create({ owner, repo, title, body, labels: ['code-review'] });
+                  console.log(`Oluşturuldu: ${title}`);
+                }
+
+                // create PR flow: AI must return JSON between markers
+                if (!dryRun && createPr && result.aiSuggestion && result.aiSuggestion.includes('<<<PATCH_JSON_START>>>')) {
+                  try {
+                    const jsonText = result.aiSuggestion.split('<<<PATCH_JSON_START>>>')[1].split('<<<PATCH_JSON_END>>>')[0];
+                    const patch = JSON.parse(jsonText);
+                    if (patch && patch.path && patch.content) {
+                      const timestamp = Date.now();
+                      const sanitize = s => s.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
+                      const branchName = `ai-suggested/${sanitize(patch.path)}-${timestamp}`;
+
+                      const repoInfo = await github.rest.repos.get({ owner, repo });
+                      const baseBranch = repoInfo.data.default_branch;
+                      const baseRef = await github.rest.git.getRef({ owner, repo, ref: `heads/${baseBranch}` });
+                      const baseSha = baseRef.data.object.sha;
+
+                      await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branchName}`, sha: baseSha });
+
+                      const targetPath = patch.path;
+                      const encoded = Buffer.from(patch.content, 'utf8').toString('base64');
+                      let sha = null;
+                      try {
+                        const existing = await github.rest.repos.getContent({ owner, repo, path: targetPath, ref: baseBranch });
+                        sha = existing.data.sha;
+                      } catch (e) {
+                        // file may not exist - create new
+                      }
+
+                      await github.rest.repos.createOrUpdateFileContents({ owner, repo, path: targetPath, message: `AI: apply suggested change to ${targetPath}`, content: encoded, branch: branchName, sha });
+
+                      const pr = await github.rest.pulls.create({ owner, repo, title: `AI suggested change: ${patch.path}`, head: branchName, base: baseBranch, body: `AI tarafından önerilen değişiklik: ${patch.path}` });
+                      console.log(`PR oluşturuldu: ${pr.data.html_url}`);
+
+                      // Request reviewer and add assignee (assign to Onur-TURAN)
+                      try {
+                        await github.rest.pulls.requestReviewers({ owner, repo, pull_number: pr.data.number, reviewers: ['Onur-TURAN'] });
+                        console.log('Reviewer requested: Onur-TURAN');
+                      } catch (e) {
+                        console.log('requestReviewers hata:', e.message || e);
+                      }
+                      try {
+                        await github.rest.issues.addAssignees({ owner, repo, issue_number: pr.data.number, assignees: ['Onur-TURAN'] });
+                        console.log('Assignee added: Onur-TURAN');
+                      } catch (e) {
+                        console.log('addAssignees hata:', e.message || e);
+                      }
+                    }
+                  } catch (e) {
+                    console.log('create_pr sırasında hata:', e.message || e);
+                  }
+                }
+
+                created++;
+              }
+
+              console.log(`Toplam ${created} issue oluşturuldu veya dry-run modunda loglandı.`);
+            })();
