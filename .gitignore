@@ -2,3 +2,4 @@
 *.txt
 *.xlsx
 data-prep/data/*
+!requirements.txt

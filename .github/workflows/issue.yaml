@@ -1,18 +1,7 @@
 name: Kod Analizi ve Issue Açma (Copilot Style)
 
+# Her push'ta dosya başına issue açtığı için yalnızca elle çalıştırılır.
 on:
-  push:
-    paths-ignore:
-      - '**/*.md'
-      - 'build/**'
-      - 'dist/**'
-      - 'node_modules/**'
-  pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - 'build/**'
-      - 'dist/**'
-      - 'node_modules/**'
   workflow_dispatch:
     inputs:
       dry_run:
