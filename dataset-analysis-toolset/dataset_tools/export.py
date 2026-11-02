@@ -32,6 +32,11 @@ def save_tables(tables: dict[str, pd.DataFrame], path: str | Path) -> Path:
                 tz_columns = frame.select_dtypes(include="datetimetz").columns
                 frame = frame.assign(**{c: frame[c].dt.tz_localize(None) for c in tz_columns})
                 frame.to_excel(writer, sheet_name=names[name], index=False)
+                # Veri içindeki "=..." metinleri formül olarak çalışmasın (CSV/formula injection).
+                for row in writer.book[names[name]].iter_rows():
+                    for cell in row:
+                        if cell.data_type == "f":
+                            cell.data_type = "s"
     elif path.suffix.lower() == ".html":
         sections = "\n".join(f"<h2>{html.escape(str(name))}</h2>{frame.to_html(index=False)}" for name, frame in frames.items())
         path.write_text(f"<!doctype html><meta charset='utf-8'><style>body{{font:14px Arial;margin:32px}}table{{border-collapse:collapse;margin-bottom:32px}}th,td{{border:1px solid #bbb;padding:6px}}th{{background:#eee}}</style><h1>Dataset Analysis Report</h1>{sections}", encoding="utf-8")

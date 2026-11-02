@@ -24,6 +24,7 @@ def categorical_summary(df: pd.DataFrame, columns=None) -> pd.DataFrame:
     rows = []
     for column in categorical:
         counts = categorical[column].value_counts(dropna=True)
+        counts = counts[counts > 0]
         rows.append(
             {
                 "column": column,
@@ -43,7 +44,8 @@ def correlation_table(df: pd.DataFrame, columns=None) -> pd.DataFrame:
     numeric = select_columns(df, columns).select_dtypes(include="number")
     if numeric.empty:
         return pd.DataFrame()
-    return numeric.corr().rename_axis("column").reset_index().round(4)
+    label = "column" if "column" not in numeric.columns else "column_"
+    return numeric.corr().rename_axis(label).reset_index().round(4)
 
 
 def frequency_tables(df: pd.DataFrame, columns=None, top_n: int = 10) -> dict[str, pd.DataFrame]:

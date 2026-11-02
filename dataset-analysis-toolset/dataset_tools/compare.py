@@ -28,10 +28,26 @@ def _typed_value(value) -> tuple[str, str]:
     """20 ile 20.0 aynı sayılsın diye sayıları ortak biçime getirir; '20' metni ayrı kalır."""
     if isinstance(value, (bool, np.bool_)):
         return "bool", str(value)
+    if isinstance(value, numbers.Integral):
+        return "number", str(int(value))
     if isinstance(value, numbers.Real):
         value = float(value)
         return "number", str(int(value)) if value.is_integer() else repr(value)
     return type(value).__name__, str(value)
+
+
+def _mean(series: pd.Series) -> float | None:
+    mean = series.mean()
+    return None if pd.isna(mean) else round(float(mean), 4)
+
+
+def _payload(series: pd.Series) -> pd.Series:
+    """Kategorik sütunları ham değere, tamsayıları outer join'de float'a dönmeyen Int64'e çevirir."""
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        return series.astype(object)
+    if pd.api.types.is_integer_dtype(series) and not pd.api.types.is_extension_array_dtype(series):
+        return series.astype("Int64")
+    return series
 
 
 def _typed_value_or_na(value):
@@ -68,9 +84,9 @@ def compare_columns(left: pd.DataFrame, right: pd.DataFrame, pairs: Iterable[str
                 "left_only_unique": len(a_values - b_values),
                 "right_only_unique": len(b_values - a_values),
                 "jaccard_percent": round(len(common) / len(union) * 100, 2) if union else 100.0,
-                "left_mean": round(float(a.mean()), 4) if numeric else None,
-                "right_mean": round(float(b.mean()), 4) if numeric else None,
-                "mean_difference": round(float(a.mean() - b.mean()), 4) if numeric else None,
+                "left_mean": _mean(a) if numeric else None,
+                "right_mean": _mean(b) if numeric else None,
+                "mean_difference": round(_mean(a) - _mean(b), 4) if numeric and pd.notna(_mean(a)) and pd.notna(_mean(b)) else None,
             }
         )
     return pd.DataFrame(rows)
@@ -86,16 +102,21 @@ def compare_rows_by_key(left: pd.DataFrame, right: pd.DataFrame, key: str, colum
     if left[key].duplicated().any() or right[key].duplicated().any():
         raise ValueError(f"'{key}' sütunu her iki veri setinde de tekil olmalı")
 
-    a = left[required].rename(columns={c: f"{c}__left" for c in columns})
-    b = right[required].rename(columns={c: f"{c}__right" for c in columns})
+    a = left[required].apply(_payload).rename(columns={c: f"{c}__left" for c in columns})
+    b = right[required].apply(_payload).rename(columns={c: f"{c}__right" for c in columns})
     if a[key].dtype != b[key].dtype:
         # Örn. bir dosyada 1, diğerinde "1": merge'ün tip hatası vermemesi için anahtarlar metne çevrilir.
         a[key], b[key] = a[key].map(_typed_value_or_na), b[key].map(_typed_value_or_na)
-    merged = a.merge(b, on=key, how="outer", indicator="row_status")
-    mismatch = merged["row_status"].ne("both")
+        if a[key].duplicated().any() or b[key].duplicated().any():
+            raise ValueError(f"'{key}' sütunu metne çevrildikten sonra tekil değil (örn. 1 ve '1' birlikte var)")
+    indicator = "__row_status__"
+    merged = a.merge(b, on=key, how="outer", indicator=indicator)
+    mismatch = merged[indicator].ne("both")
     for column in columns:
         x, y = merged[f"{column}__left"], merged[f"{column}__right"]
-        same = x.eq(y) | (x.isna() & y.isna())
+        # Nullable sütunlarda eq() NA döndürür; NA'yı "farklı" sayıyoruz ki boş→dolu değişimler kaybolmasın.
+        same = x.eq(y).fillna(False).astype(bool) | (x.isna() & y.isna())
         merged[f"{column}__match"] = same
         mismatch |= ~same
+    merged = merged.rename(columns={indicator: "row_status"}) if key != "row_status" else merged
     return merged.loc[mismatch].reset_index(drop=True)

@@ -11,7 +11,8 @@ CSV_ENCODINGS = ("utf-8-sig", "cp1254", "latin-1")
 
 def _sniff_sep(path: Path) -> str:
     """İlk 64 KB'tan ayracı tahmin eder; tek sütunlu dosyalarda virgüle düşer."""
-    sample = path.read_bytes()[: 64 * 1024].decode("utf-8", errors="ignore")
+    with path.open("rb") as stream:
+        sample = stream.read(64 * 1024).decode("utf-8", errors="ignore")
     try:
         return csv.Sniffer().sniff(sample, delimiters=CSV_DELIMITERS).delimiter
     except csv.Error:

@@ -84,6 +84,41 @@ class DatasetToolsTest(unittest.TestCase):
         mismatches = compare_rows_by_key(self.left, right, "id", ["city"])
         self.assertEqual(set(mismatches["id"]), {"2", "3", "4"})
 
+    def test_null_to_value_change_is_reported(self):
+        a = pd.DataFrame({"id": [1], "v": pd.Series([pd.NA], dtype="Int64")})
+        b = pd.DataFrame({"id": [1], "v": pd.Series([7], dtype="Int64")})
+        self.assertEqual(len(compare_rows_by_key(a, b, "id", ["v"])), 1)
+
+    def test_large_integers_are_not_rounded(self):
+        a, b = pd.DataFrame({"id": [1, 2], "x": [2**53 + 1, 0]}), pd.DataFrame({"id": [1, 3], "x": [2**53, 0]})
+        self.assertEqual(compare_columns(a, b, ["x"]).iloc[0]["shared_unique"], 1)
+        self.assertIn(1, set(compare_rows_by_key(a, b, "id", ["x"])["id"]))
+
+    def test_key_collision_after_type_conversion(self):
+        a = pd.DataFrame({"id": pd.Series([1, "1"], dtype=object), "v": [7, 7]})
+        with self.assertRaises(ValueError):
+            compare_rows_by_key(a, pd.DataFrame({"id": [1], "v": [7]}), "id", ["v"])
+
+    def test_awkward_column_names_and_dtypes(self):
+        self.assertIn("correlation", analyze_columns(pd.DataFrame({"column": [1, 2]})))
+        df = pd.DataFrame({"row_status": [1], "v": [1]})
+        self.assertEqual(len(compare_rows_by_key(df, df, "row_status", ["v"])), 0)
+        a = pd.DataFrame({"id": [1], "v": pd.Categorical(["a"], categories=["a", "b"])})
+        b = pd.DataFrame({"id": [1], "v": pd.Categorical(["a"], categories=["a", "c"])})
+        self.assertEqual(len(compare_rows_by_key(a, b, "id", ["v"])), 0)
+        empty = pd.DataFrame({"x": pd.Series([pd.NA], dtype="Int64")})
+        self.assertIsNone(compare_columns(empty, empty, ["x"]).iloc[0]["left_mean"])
+        unused = pd.DataFrame({"x": pd.Categorical([None], categories=["unused"])})
+        self.assertIsNone(analyze_columns(unused)["categorical_summary"].iloc[0]["top"])
+
+    def test_excel_export_does_not_create_formulas(self):
+        from openpyxl import load_workbook
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = save_tables({"data": pd.DataFrame({"value": ["=1+1"]})}, Path(directory) / "f.xlsx")
+            cell = load_workbook(path)["data"]["A2"]
+            self.assertEqual((cell.value, cell.data_type), ("=1+1", "s"))
+
     def test_list_cells_and_timezone_export(self):
         df = pd.DataFrame({"tags": [[1], [2], None], "time": pd.date_range("2024", periods=3, tz="UTC")})
         tables = analyze_columns(df)
