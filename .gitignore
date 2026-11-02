@@ -1,4 +1,5 @@
 *.csv
 *.txt
 *.xlsx
-data-prep/data/*!requirements.txt
+data-prep/data/*
+!requirements.txt
