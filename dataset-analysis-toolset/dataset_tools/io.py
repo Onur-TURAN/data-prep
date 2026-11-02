@@ -50,3 +50,31 @@ def load_dataset(path: str | Path, **kwargs) -> pd.DataFrame:
     except KeyError as exc:
         raise ValueError(f"Desteklenmeyen dosya türü: {path.suffix}") from exc
     return reader()
+
+
+def list_sheets(path: str | Path) -> list[str]:
+    """Excel dosyasındaki sayfa adlarını döndürür."""
+    path = Path(path)
+    if path.suffix.lower() not in {".xlsx", ".xls"}:
+        raise ValueError(f"Sayfa listesi yalnızca Excel dosyaları için alınabilir: {path.name}")
+    with pd.ExcelFile(path) as book:  # açık kalırsa Windows dosyayı kilitler
+        return list(book.sheet_names)
+
+
+def save_dataset(df: pd.DataFrame, path: str | Path) -> Path:
+    """Veri setini uzantıya göre CSV, TSV, Excel, Parquet veya JSON olarak kaydeder."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writers = {
+        ".csv": lambda: df.to_csv(path, index=False, encoding="utf-8-sig"),
+        ".tsv": lambda: df.to_csv(path, sep="\t", index=False, encoding="utf-8-sig"),
+        ".xlsx": lambda: df.to_excel(path, index=False),
+        ".parquet": lambda: df.to_parquet(path, index=False),
+        ".json": lambda: df.to_json(path, orient="records", force_ascii=False, date_format="iso", indent=2),
+    }
+    try:
+        writer = writers[path.suffix.lower()]
+    except KeyError as exc:
+        raise ValueError(f"Desteklenmeyen kayıt türü: {path.suffix}") from exc
+    writer()
+    return path

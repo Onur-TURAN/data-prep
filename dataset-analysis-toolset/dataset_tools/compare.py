@@ -46,7 +46,7 @@ def _payload(series: pd.Series) -> pd.Series:
     if isinstance(series.dtype, pd.CategoricalDtype):
         return series.astype(object)
     if pd.api.types.is_integer_dtype(series) and not pd.api.types.is_extension_array_dtype(series):
-        return series.astype("Int64")
+        return series.astype("UInt64" if pd.api.types.is_unsigned_integer_dtype(series) else "Int64")
     return series
 
 
@@ -92,25 +92,27 @@ def compare_columns(left: pd.DataFrame, right: pd.DataFrame, pairs: Iterable[str
     return pd.DataFrame(rows)
 
 
-def compare_rows_by_key(left: pd.DataFrame, right: pd.DataFrame, key: str, columns: Iterable[str]) -> pd.DataFrame:
-    """Tekil bir anahtara göre yalnızca eksik veya uyuşmayan satırları döndürür."""
-    columns = list(columns)
-    required = [key, *columns]
+def compare_rows_by_key(left: pd.DataFrame, right: pd.DataFrame, key: str | Sequence[str], columns: Iterable[str]) -> pd.DataFrame:
+    """Tekil (tek ya da çok sütunlu) bir anahtara göre yalnızca eksik veya uyuşmayan satırları döndürür."""
+    keys = [key] if isinstance(key, str) else list(key)
+    columns = [c for c in columns if c not in keys]
+    required = [*keys, *columns]
     missing_left, missing_right = [c for c in required if c not in left], [c for c in required if c not in right]
     if missing_left or missing_right:
         raise KeyError(f"Eksik sütunlar - left: {missing_left}, right: {missing_right}")
-    if left[key].duplicated().any() or right[key].duplicated().any():
-        raise ValueError(f"'{key}' sütunu her iki veri setinde de tekil olmalı")
+    if left.duplicated(keys).any() or right.duplicated(keys).any():
+        raise ValueError(f"{keys} anahtarı her iki veri setinde de tekil olmalı")
 
     a = left[required].apply(_payload).rename(columns={c: f"{c}__left" for c in columns})
     b = right[required].apply(_payload).rename(columns={c: f"{c}__right" for c in columns})
-    if a[key].dtype != b[key].dtype:
-        # Örn. bir dosyada 1, diğerinde "1": merge'ün tip hatası vermemesi için anahtarlar metne çevrilir.
-        a[key], b[key] = a[key].map(_typed_value_or_na), b[key].map(_typed_value_or_na)
-        if a[key].duplicated().any() or b[key].duplicated().any():
-            raise ValueError(f"'{key}' sütunu metne çevrildikten sonra tekil değil (örn. 1 ve '1' birlikte var)")
+    for k in keys:
+        if a[k].dtype != b[k].dtype:
+            # Örn. bir dosyada 1, diğerinde "1": merge'ün tip hatası vermemesi için anahtarlar metne çevrilir.
+            a[k], b[k] = a[k].map(_typed_value_or_na), b[k].map(_typed_value_or_na)
+    if a.duplicated(keys).any() or b.duplicated(keys).any():
+        raise ValueError(f"{keys} anahtarı metne çevrildikten sonra tekil değil (örn. 1 ve '1' birlikte var)")
     indicator = "__row_status__"
-    merged = a.merge(b, on=key, how="outer", indicator=indicator)
+    merged = a.merge(b, on=keys, how="outer", indicator=indicator)
     mismatch = merged[indicator].ne("both")
     for column in columns:
         x, y = merged[f"{column}__left"], merged[f"{column}__right"]
@@ -118,5 +120,5 @@ def compare_rows_by_key(left: pd.DataFrame, right: pd.DataFrame, key: str, colum
         same = x.eq(y).fillna(False).astype(bool) | (x.isna() & y.isna())
         merged[f"{column}__match"] = same
         mismatch |= ~same
-    merged = merged.rename(columns={indicator: "row_status"}) if key != "row_status" else merged
+    merged = merged.rename(columns={indicator: "row_status"}) if "row_status" not in keys else merged
     return merged.loc[mismatch].reset_index(drop=True)
