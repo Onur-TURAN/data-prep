@@ -42,6 +42,28 @@ class CleaningTest(unittest.TestCase):
         self.assertEqual(out["date"].dt.month.tolist()[:2], [2, 4])
         self.assertEqual(out["code"].tolist(), ["001", "002", "abc"])
 
+    def test_convert_types_keeps_ambiguous_and_identifier_values(self):
+        cases = {
+            "dotted_dates": (["01.04.2024", "31.12.2024"], "datetime64"),
+            "mixed_decimals": (["1.234,56", "1,5", "1.5"], "str"),
+            "phones": (["05321234567", "05001234567"], "str"),
+            "zip": (["00123", "00456"], "str"),
+        }
+        out = convert_types(pd.DataFrame({name: pd.Series(values, dtype=object) for name, (values, _) in cases.items()}))
+        for name, (_, kind) in cases.items():
+            if kind == "str":
+                self.assertEqual(out[name].dropna().tolist(), cases[name][0], name)
+            else:
+                self.assertTrue(str(out[name].dtype).startswith(kind), name)
+        big = convert_types(pd.DataFrame({"x": ["9007199254740993"]}))["x"]
+        self.assertEqual(big.iloc[0], 9007199254740993)
+
+    def test_fill_constant_matches_column_type(self):
+        df = pd.DataFrame({"n": pd.Series([1, None], dtype="Int64"), "b": pd.Series([True, None], dtype="boolean")})
+        self.assertEqual(fill_missing(df, "0").to_dict("list"), {"n": [1, 0], "b": [True, False]})
+        with self.assertRaises(ValueError):
+            fill_missing(df, "bilinmiyor")
+
     def test_fill_missing_strategies(self):
         df = pd.DataFrame({"x": [1, None, 3], "city": ["A", None, "A"]})
         self.assertEqual(fill_missing(df, "median")["x"].tolist(), [1, 2, 3])
@@ -68,6 +90,8 @@ class SqlFeaturesTest(unittest.TestCase):
         self.assertEqual(df.loc[1, "Length"], 0)
         with self.assertRaises(KeyError):
             add_sql_features(df, "missing")
+        with self.assertRaises(ValueError):
+            add_sql_features(df)  # özellikler zaten eklenmiş
 
 
 class IoAndKeyTest(unittest.TestCase):
@@ -97,6 +121,8 @@ class IoAndKeyTest(unittest.TestCase):
         self.assertEqual(mismatches[["y", "m"]].values.tolist(), [[2024, 2]])
         with self.assertRaises(ValueError):
             compare_rows_by_key(a, b, ["y"], ["v"])
+        unsigned = pd.DataFrame({"id": pd.Series([2**63 + 1], dtype="uint64"), "v": ["x"]})
+        self.assertEqual(len(compare_rows_by_key(unsigned, unsigned.copy(), ["id"], ["v"])), 0)
 
 
 class CommandTest(unittest.TestCase):
@@ -121,6 +147,8 @@ class CommandTest(unittest.TestCase):
             self.assertNotEqual(sql.returncode, 0)
             sql = self.run_main("sql", source, "--output", directory / "sql.csv")
             self.assertEqual(sql.returncode, 0, sql.stderr)
+            orphan = self.run_main(source, "--key", "id")
+            self.assertIn("--dataset2", orphan.stderr)
 
 
 class MenuTest(unittest.TestCase):

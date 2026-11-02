@@ -111,6 +111,10 @@ def load(path: str, args: argparse.Namespace, sheet: str | None = None):
 
 
 def run(args: argparse.Namespace) -> None:
+    if (args.key or args.row_columns or args.pair or args.sheet2) and not args.dataset2:
+        raise ValueError("--key, --row-columns, --pair ve --sheet2 için --dataset2 de verilmeli")
+    if args.row_columns and not args.key:
+        raise ValueError("--row-columns için --key de verilmeli")
     first = load(args.dataset1, args, args.sheet)
     print_tables({"dataset1_columns": column_table(first)}, max_rows=len(first.columns))
     tables = {f"dataset1_{name}": table for name, table in analyze_columns(first, args.columns, args.top).items()}

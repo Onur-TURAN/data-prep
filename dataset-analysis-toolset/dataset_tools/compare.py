@@ -46,7 +46,7 @@ def _payload(series: pd.Series) -> pd.Series:
     if isinstance(series.dtype, pd.CategoricalDtype):
         return series.astype(object)
     if pd.api.types.is_integer_dtype(series) and not pd.api.types.is_extension_array_dtype(series):
-        return series.astype("Int64")
+        return series.astype("UInt64" if pd.api.types.is_unsigned_integer_dtype(series) else "Int64")
     return series
 
 

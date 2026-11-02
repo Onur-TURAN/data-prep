@@ -72,4 +72,7 @@ def add_sql_features(df: pd.DataFrame, column: str = "Query", combo_lengths: tup
     if column not in df:
         raise KeyError(f"Sorgu sütunu bulunamadı: {column}")
     features = pd.DataFrame([extract_sql_features(q, combo_lengths) for q in df[column]], index=df.index)
+    clashes = [c for c in features.columns if c in df.columns]
+    if clashes:
+        raise ValueError(f"Veri setinde zaten özellik sütunları var (örn. {clashes[:3]}); özellikler daha önce eklenmiş olabilir")
     return pd.concat([df, features], axis=1)

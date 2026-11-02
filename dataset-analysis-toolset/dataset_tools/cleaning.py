@@ -49,6 +49,42 @@ def drop_duplicate_rows(df: pd.DataFrame, subset: Iterable[str] | None = None) -
     return df.drop_duplicates(subset=subset).reset_index(drop=True)
 
 
+INTEGER = re.compile(r"[+-]?\d+")
+LEADING_ZERO = re.compile(r"[+-]?0\d+")
+DOT_DECIMAL = re.compile(r"[+-]?\d*\.\d+")
+TURKISH_NUMBER = re.compile(r"[+-]?(\d{1,3}(\.\d{3})+|\d+)(,\d+)?")
+DATE_SHAPE = re.compile(r"\d{1,4}[-./]\d{1,2}[-./]\d{1,4}([ T].*)?")
+
+
+def _to_dates(text: pd.Series) -> pd.Series | None:
+    """2024-04-01 ISO olarak, 01.04.2024 Türkçe gün.ay.yıl olarak okunur."""
+    iso = text.str.match(r"^\d{4}[-./]")
+    dates = pd.concat(
+        [
+            pd.to_datetime(text[iso].str.replace(r"[./]", "-", regex=True), errors="coerce", format="mixed"),
+            pd.to_datetime(text[~iso], errors="coerce", format="mixed", dayfirst=True),
+        ]
+    )
+    return dates if dates.notna().all() else None
+
+
+def _to_numbers(text: pd.Series) -> pd.Series | None:
+    """Değerleri tek tek okur; 1.234,5 ile 1.5 aynı sütunda ise biçim belirsiz sayılıp None döner."""
+    if text.map(lambda v: bool(LEADING_ZERO.fullmatch(v))).any():
+        return None  # 0532..., 00123 gibi telefon, posta kodu ve kimlikler metin kalmalı
+    if text.map(lambda v: bool(INTEGER.fullmatch(v))).all():
+        numbers = [int(v) for v in text]
+        if all(-(2**63) <= n < 2**63 for n in numbers):
+            return pd.Series(pd.array(numbers, dtype="Int64"), index=text.index)
+        return None
+    turkish = text.map(lambda v: bool(TURKISH_NUMBER.fullmatch(v)))
+    if turkish.all() and text.str.contains(",").any():
+        return pd.to_numeric(text.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)).astype("Float64")
+    if text.map(lambda v: bool(INTEGER.fullmatch(v) or DOT_DECIMAL.fullmatch(v))).all():
+        return pd.to_numeric(text).astype("Float64")
+    return None
+
+
 def _convert_series(series: pd.Series) -> pd.Series:
     values = series.dropna()
     if values.empty or not (pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)):
@@ -57,30 +93,33 @@ def _convert_series(series: pd.Series) -> pd.Series:
     lowered = set(text.str.lower())
     if lowered <= TRUE_WORDS | FALSE_WORDS and not lowered <= {"0", "1"}:
         return series.map(lambda v: v if pd.isna(v) else str(v).strip().lower() in TRUE_WORDS).astype("boolean")
-    for candidate in (text, text.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)):
-        numbers = pd.to_numeric(candidate, errors="coerce")
-        if numbers.notna().all():
-            converted = pd.Series(pd.NA, index=series.index, dtype="Float64")
-            converted[values.index] = numbers
-            return converted.astype("Int64") if (converted.dropna() % 1 == 0).all() else converted
-    if text.str.contains(r"\d{1,4}[-./]\d{1,2}[-./]\d{1,4}").all():
-        # 2024-04-01 ISO olarak, 01.04.2024 Türkçe gün.ay.yıl olarak okunur.
-        iso = text.str.match(r"^\d{4}[-./]")
-        dates = pd.concat(
-            [
-                pd.to_datetime(text[iso].str.replace(r"[./]", "-", regex=True), errors="coerce", format="mixed"),
-                pd.to_datetime(text[~iso], errors="coerce", format="mixed", dayfirst=True),
-            ]
-        )
-        if dates.notna().all():
-            return dates.reindex(series.index)
-    return series
+    # Tarih kontrolü önce: 01.04.2024 sayı gibi de okunabiliyor.
+    converted = _to_dates(text) if text.map(lambda v: bool(DATE_SHAPE.fullmatch(v))).all() else _to_numbers(text)
+    return series if converted is None else converted.reindex(series.index)
 
 
 def convert_types(df: pd.DataFrame, columns: Iterable[str] | None = None) -> pd.DataFrame:
     """Metin olarak okunmuş sayı (1.234,5 dahil), tarih ve evet/hayır sütunlarını gerçek tipe çevirir."""
     data = select_columns(df, columns)
     return df.assign(**{c: _convert_series(df[c]) for c in data.columns})
+
+
+def _constant_for(series: pd.Series, value: object) -> object:
+    """Komut satırından metin olarak gelen sabiti sütunun tipine çevirir."""
+    if not isinstance(value, str):
+        return value
+    try:
+        if pd.api.types.is_bool_dtype(series):
+            if value.strip().lower() not in TRUE_WORDS | FALSE_WORDS:
+                raise ValueError
+            return value.strip().lower() in TRUE_WORDS
+        if pd.api.types.is_numeric_dtype(series):
+            return float(value.replace(",", ".")) if not INTEGER.fullmatch(value.strip()) else int(value)
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return pd.Timestamp(value)
+    except ValueError:
+        raise ValueError(f"'{value}' değeri '{series.name}' sütununun tipine ({series.dtype}) uymuyor; doldurulacak sütunları ayrıca seçin") from None
+    return value
 
 
 def fill_missing(df: pd.DataFrame, strategy: str | object = "median", columns: Iterable[str] | None = None) -> pd.DataFrame:
@@ -101,7 +140,9 @@ def fill_missing(df: pd.DataFrame, strategy: str | object = "median", columns: I
             modes = series.mode(dropna=True)
             value = modes.iloc[0] if len(modes) else pd.NA
         else:
-            value = strategy
+            value = _constant_for(series, strategy)
+            if pd.api.types.is_integer_dtype(series) and value % 1:
+                series = series.astype("Float64")
         if pd.notna(value):
             filled[column] = series.fillna(value)
     return df.assign(**filled)
