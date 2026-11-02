@@ -59,6 +59,9 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    # Türkçe karakterleri desteklemeyen Windows konsollarında print çökmesin.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(errors="replace")
     args = build_parser().parse_args()
     try:
         run(args)
